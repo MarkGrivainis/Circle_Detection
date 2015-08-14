@@ -4,24 +4,31 @@ import java.awt.image.*;
 import java.io.File;
 import java.io.IOException;
 import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JFileChooser;
+import javax.swing.*;
 import java.awt.color.ColorSpace;
+import java.util.List;
+import java.util.ArrayList;
+import java.awt.Point;
 
 public class Display extends Frame implements WindowListener,ActionListener {
 
     static ColorConvertOp grayscale = new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null);
 
+
+
     JLabel lbl1=new JLabel();
     JLabel lbl2=new JLabel();
+
+    JRadioButton filterBtn;
+    JRadioButton sobelBtn;
+    JRadioButton nonMaxBtn;
+
     int width = 0;
     int height = 0;
     BufferedImage img, greyScale, filtered, sobel, nonMax;
-    float[][] sX, sY;
+    double[][] sX, sY;
 
-    double thresholdLow = 50, thresholdHigh = 150;
+    double thresholdLow = 60, thresholdHigh = 100;
 
     Button b, c;
 
@@ -33,11 +40,13 @@ public class Display extends Frame implements WindowListener,ActionListener {
                           {1,2,1}};
     private static final float[] sobel1 = { 1.0f, 0.0f, -1.0f};
     private static final float[] sobel2 = { 1.0f, 2.0f,  1.0f};
-    final float gaus[] =  {2f/115,4f/115,5f/115,4f/115,2f/115,
-                            4f/115,9f/115,12f/115,9f/115,4f/115,
-                            5f/115,12f/115,15f/115,12f/115,5f/115,
-                            4f/115,9f/115,12f/115,9f/115,4f/115,
-                            2f/115,4f/115,5f/115,4f/115,2f/115};
+    final float gaus[] =  {
+            0.01936442791517524f, 0.05653536331573492f, 0.08080260449814265f, 0.05653536331573492f, 0.01936442791517524f,
+            0.05653536331573492f, 0.16505766755636275f, 0.23590702612909029f, 0.16505766755636275f, 0.05653536331573492f,
+            0.08080260449814265f, 0.23590702612909029f, 0.3371677656723677f, 0.23590702612909029f, 0.08080260449814265f,
+            0.05653536331573492f, 0.16505766755636275f, 0.23590702612909029f, 0.16505766755636275f, 0.05653536331573492f,
+            0.01936442791517524f, 0.05653536331573492f, 0.08080260449814265f, 0.05653536331573492f, 0.01936442791517524f
+    };
 
 
     int[] tmp255 = {255};
@@ -47,11 +56,13 @@ public class Display extends Frame implements WindowListener,ActionListener {
 
     String path = "pic_1.gif";
 
-    int[] acc;
-    int accSize=5;
+    int[][] acc;
+    int accSize=20;
     int[] results;
 
-    int r = 30;
+    //int r = 14;
+    int rmax;
+    int offset;
 
     public static void main(String[] args) throws IOException {
         Display myWindow = new Display("My first window");
@@ -62,17 +73,41 @@ public class Display extends Frame implements WindowListener,ActionListener {
     public Display(String title) throws IOException{
 
         super(title);
-        setLayout(new FlowLayout());
+        setLayout(new GridLayout(1, 3));
+        JPanel options = new JPanel(new GridLayout(3,1));
         addWindowListener(this);
         b = new Button("Load Image");
         c = new Button("filter");
-        add(b);
-        add(c);
+        options.add(b);
+        options.add(c);
+        add(options);
+
+        filterBtn = new JRadioButton("Filtered");
+        sobelBtn = new JRadioButton("Sobel");
+        nonMaxBtn = new JRadioButton("Non Maximal");
+
+        ButtonGroup rGroup = new ButtonGroup();
+        rGroup.add(filterBtn);
+        rGroup.add(sobelBtn);
+        rGroup.add(nonMaxBtn);
+
+        JPanel radioPanel = new JPanel(new GridLayout(0, 1));
+        radioPanel.add(filterBtn);
+        radioPanel.add(sobelBtn);
+        radioPanel.add(nonMaxBtn);
+
+
+        options.add(radioPanel);
+
         loadImage();
         add(lbl1);
         add(lbl2);
         b.addActionListener(this);
         c.addActionListener(this);
+
+        filterBtn.addActionListener(this);
+        sobelBtn.addActionListener(this);
+        nonMaxBtn.addActionListener(this);
     }
 
     public void actionPerformed(ActionEvent e){
@@ -94,9 +129,20 @@ public class Display extends Frame implements WindowListener,ActionListener {
             gaussianBlur();
             filtered = grayscale.filter(filtered, null);
             sobel();
+            //thinImage();
             nonMax();
             //overlay();
             Hough();
+        }
+        else if (e.getSource() == filterBtn) {
+            ImageIcon icon2=new ImageIcon(filtered);
+            lbl2.setIcon(icon2);
+        } else if (e.getSource() == sobelBtn) {
+            ImageIcon icon2=new ImageIcon(sobel);
+            lbl2.setIcon(icon2);
+        }else if (e.getSource() == nonMaxBtn) {
+            ImageIcon icon2=new ImageIcon(nonMax);
+            lbl2.setIcon(icon2);
         }
 
     }
@@ -143,11 +189,29 @@ public class Display extends Frame implements WindowListener,ActionListener {
         lbl2.setIcon(icon2);
     }
 
+    public static float[] makeGaussianKernel(int radius, float sigma) {
+        float[] kernel = new float[radius * radius];
+        float sum = 0;
+        for (int y = 0; y < radius; y++) {
+            for (int x = 0; x < radius; x++) {
+                int offset = y * radius + x;
+                int i = x - radius / 2;
+                int j = y - radius / 2;
+                kernel[offset] = (float) Math.pow(Math.E, -(i * i + j * j)
+                        / (2 * (sigma * sigma)));
+                sum += kernel[offset];
+            }
+        }
+        for (int i = 0; i < kernel.length; i++)
+            kernel[i] /= sum;
+        return kernel;
+    }
+
     public void gaussianBlur()
     {
         filtered = null;
-        Kernel kernel = new Kernel(5, 5, gaus);
-        ConvolveOp op = new ConvolveOp(kernel);
+        Kernel kernel = new Kernel(5, 5, makeGaussianKernel(5, 1.4f));
+        ConvolveOp op = new ConvolveOp(kernel, ConvolveOp.EDGE_NO_OP, null);
         filtered = op.filter(img, null);
 //        int[] value = new int[1];
 //        double r = 1.4;
@@ -175,17 +239,6 @@ public class Display extends Frame implements WindowListener,ActionListener {
         lbl2.setIcon(icon2);
     }
 
-    private double G(int x, int y)
-    {
-        //the minimum value has to be 0, and the maximum must be 16777215 (hexidecimal of black is 000000 and white is ffffff. I just used the calculator to find it out)
-        int derp = this.sobel.getRGB(x,y);
-        int herp = this.nonMax.getRGB(x,y);
-
-        //maximum possible for result: 23726565.  Minimum == 0.
-        double result = Math.sqrt(Math.pow(derp, 2.0) + Math.pow(herp, 2.0));
-        return result;
-    }
-
     public void sobel()
     {
 
@@ -196,8 +249,9 @@ public class Display extends Frame implements WindowListener,ActionListener {
         g.dispose();
 
         int[] tmp = new int[1];
-        sX = new float[height][width];
-        sY = new float[height][width];
+        sX = new double[height][width];
+        sY = new double[height][width];
+        double max = 0;
         for (int y = 1;y < height-1;++y)
             for (int x = 1; x < width-1;++x)
             {
@@ -212,11 +266,13 @@ public class Display extends Frame implements WindowListener,ActionListener {
                     }
                 sX[y][x] = Xvalue;
                 sY[y][x] = Yvalue;
-                float[] a = {Math.abs(sX[y][x]) + Math.abs(sY[y][x])};
-                if (a[0] > 255)
-                    a[0] = 255;
-                if (a[0] < 0)
-                    a[0] = 0;
+                double[] a = {(Math.abs(sX[y][x]) + Math.abs(sY[y][x]))};
+                //if (a[0] > max) max = a[0];
+                //if (a[0] > 255)
+                //    a[0] = 255;
+                //if (a[0] < 0)
+                //    a[0] = 0;
+
                 sobel.getRaster().setPixel(x, y, a);
             }
 
@@ -224,13 +280,15 @@ public class Display extends Frame implements WindowListener,ActionListener {
         lbl2.setIcon(icon2);
     }
 
+
+
     public void nonMax()
     {
-        nonMax = new BufferedImage ( width, height, BufferedImage.TYPE_BYTE_GRAY );
-        Graphics2D g = nonMax.createGraphics();
-        g.setColor( new Color ( 0, 0, 0, 0 ));
-        g.fillRect(0, 0, width, height);
-        g.dispose();
+        nonMax = copyImage(filtered);//new BufferedImage ( width, height, BufferedImage.TYPE_BYTE_GRAY );
+        //Graphics2D g = nonMax.createGraphics();
+        //g.setColor( new Color ( 0, 0, 0, 0 ));
+        //g.fillRect(0, 0, width, height);
+        //g.dispose();
         double[][] gd = new double[height][width];
         double[][] gm = new double[height][width];
         for (int y = 0; y < height; y++) {
@@ -243,7 +301,7 @@ public class Display extends Frame implements WindowListener,ActionListener {
                     gd[y][x] = Math.PI / 2d;
                 }
                 gm[y][x] = Math.sqrt(sY[y][x] * sY[y][x] + sX[y][x] * sX[y][x]);
-//                gm[x][y] = Math.hypot(gy[x][y], gx[x][y]);
+//                gm[y][x] = Math.hypot(sY[y][x], sX[y][x]);
             }
         }
         for (int x = 0; x < width; x++) {
@@ -336,11 +394,16 @@ public class Display extends Frame implements WindowListener,ActionListener {
     public void Hough()
     {
         // for polar we need accumulator of 180degress * the longest length in the image
-        int rmax = (int)Math.sqrt(width*width + height*height);
-        acc = new int[width * height];
-        for(int x=0;x<width;x++) {
-            for(int y=0;y<height;y++) {
-                acc[x*width+y] =0 ;
+        //rmax = (int)Math.sqrt(width*width + height*height);
+        rmax = width > height ? height/2 : width/2;
+        System.out.println("w: " + width + " h: " + height + " rmax: " + rmax );
+        acc = new int[width * height][rmax];
+        offset = 2;
+        for(int x=0;x<height;x++) {
+            for(int y=0;y<width;y++) {
+                for (int r = 10; r < rmax;r+=offset) {
+                    acc[x * width + y][r] = 0;
+                }
             }
         }
         int x0, y0;
@@ -351,12 +414,14 @@ public class Display extends Frame implements WindowListener,ActionListener {
 
                 if ((nonMax.getRaster().getPixel(x, y, val)[0])== 0) {
 
-                    for (int theta=0; theta<360; theta++) {
-                        t = (theta * 3.14159265) / 180;
-                        x0 = (int)Math.round(x - r * Math.cos(t));
-                        y0 = (int)Math.round(y - r * Math.sin(t));
-                        if(x0 < width && x0 > 0 && y0 < height && y0 > 0) {
-                            acc[x0 + (y0 * width)] += 1;
+                    for (int r = 10; r < rmax;r+=offset) {
+                        for (int theta = 0; theta < 360; theta+=10) {
+                            t = (theta * 3.14159265) / 180;
+                            x0 = (int) Math.round(x - r * Math.cos(t));
+                            y0 = (int) Math.round(y - r * Math.sin(t));
+                            if (x0 < width && x0 > 0 && y0 < height && y0 > 0) {
+                                acc[x0 + (y0 * width)][r] += 1;
+                            }
                         }
                     }
                 }
@@ -368,10 +433,10 @@ public class Display extends Frame implements WindowListener,ActionListener {
         // Find max acc value
         for(int x=0;x<width;x++) {
             for(int y=0;y<height;y++) {
-
-                if (acc[x + (y * width)] > max) {
-                    max = acc[x + (y * width)];
-                }
+                for (int r = 10; r < rmax;r+=offset)
+                    if (acc[x + (y * width)][r] > max) {
+                        max = acc[x + (y * width)][r];
+                    }
             }
         }
 
@@ -381,16 +446,18 @@ public class Display extends Frame implements WindowListener,ActionListener {
         int value;
         for(int x=0;x<width;x++) {
             for(int y=0;y<height;y++) {
-                value = (int)(((double)acc[x + (y * width)]/(double)max)*255.0);
-                acc[x + (y * width)] = 0xff000000 | (value << 16 | value << 8 | value);
+                for (int r = 10; r < rmax;r+=offset) {
+                    value = (int) (((double) acc[x + (y * width)][r] / (double) max) * 255.0);
+                    acc[x + (y * width)][r] = 0xff000000 | (value << 16 | value << 8 | value);
+                }
             }
         }
 
-        sobel = new BufferedImage ( width, height, BufferedImage.TYPE_BYTE_GRAY );
-        Graphics2D g = sobel.createGraphics();
-        g.setColor( new Color ( 0, 0, 0, 0 ));
-        g.fillRect(0, 0, width, height);
-        g.dispose();
+        //sobel = new BufferedImage ( width, height, BufferedImage.TYPE_BYTE_GRAY );
+        //Graphics2D g = sobel.createGraphics();
+        //g.setColor( new Color ( 0, 0, 0, 0 ));
+        //g.fillRect(0, 0, width, height);
+        //g.dispose();
 
         findMaxima();
 
@@ -398,31 +465,34 @@ public class Display extends Frame implements WindowListener,ActionListener {
     }
 
     private void findMaxima() {
-        results = new int[accSize*3];
+        results = new int[accSize*4];
 
 
         for(int x=0;x<width;x++) {
             for(int y=0;y<height;y++) {
-                int value = (acc[x + (y * width)] & 0xff);
+                for (int r = 10;r<rmax;r+=offset) {
+                    int value = (acc[x + (y * width)][r] & 0xff);
 
-                // if its higher than lowest value add it and then sort
-                if (value > results[(accSize-1)*3]) {
+                    // if its higher than lowest value add it and then sort
+                    if (value > results[(accSize - 1) * 4]) {
 
-                    // add to bottom of array
-                    results[(accSize-1)*3] = value;
-                    results[(accSize-1)*3+1] = x;
-                    results[(accSize-1)*3+2] = y;
+                        // add to bottom of array
+                        results[(accSize - 1) * 4] = value;
+                        results[(accSize - 1) * 4 + 1] = x;
+                        results[(accSize - 1) * 4 + 2] = y;
+                        results[(accSize - 1) * 4 + 3] = r;
 
-                    // shift up until its in right place
-                    int i = (accSize-2)*3;
-                    while ((i >= 0) && (results[i+3] > results[i])) {
-                        for(int j=0; j<3; j++) {
-                            int temp = results[i+j];
-                            results[i+j] = results[i+3+j];
-                            results[i+3+j] = temp;
+                        // shift up until its in right place
+                        int i = (accSize - 2) * 4;
+                        while ((i >= 0) && (results[i + 4] > results[i])) {
+                            for (int j = 0; j < 4; j++) {
+                                int temp = results[i + j];
+                                results[i + j] = results[i + 4 + j];
+                                results[i + 4 + j] = temp;
+                            }
+                            i = i - 4;
+                            if (i < 0) break;
                         }
-                        i = i - 3;
-                        if (i < 0) break;
                     }
                 }
             }
@@ -431,24 +501,24 @@ public class Display extends Frame implements WindowListener,ActionListener {
         double ratio=(double)(width/2)/accSize;
         System.out.println("top "+accSize+" matches:");
         for(int i=accSize-1; i>=0; i--){
-            //System.out.println("value: " + results[i*3] + ", r: " + results[i*3+1] + ", theta: " + results[i*3+2]);
-            drawCircle(results[i*3], results[i*3+1], results[i*3+2]);
+            System.out.println("value: " + results[i*4] + ", x: " + results[i*4+1] + ", y: " + results[i*4+2] + ", r: " + results[i*4+3]);
+            drawCircle(results[i*4], results[i*4+1], results[i*4+2], results[i*4+3]);
         }
         ImageIcon icon1=new ImageIcon(img);
         lbl1.setIcon(icon1);
     }
 
-    private void setPixel(int value, int xPos, int yPos) {
+    private void setPixel2(int value, int xPos, int yPos) {
         int rgb = img.getRGB(xPos,yPos);
         Color color = new Color(rgb);
-        Color res = new Color(255, color.getGreen(), color.getBlue());
+        Color res = new Color(value, color.getGreen(), color.getBlue());
         img.setRGB(xPos, yPos, res.getRGB());
     }
 
-    private void drawCircle(int pix, int xCenter, int yCenter) {
+    private void drawCircle(int pix, int xCenter, int yCenter, int r) {
         Graphics2D g = img.createGraphics();
         g.setColor(Color.RED);
-        g.fillOval(xCenter-r, yCenter-r, r*2, r*2);
+        g.drawOval(xCenter-r, yCenter-r, r*2, r*2);
 //        pix = 250;
 //
 //        int x, y, r2;
