@@ -7,7 +7,7 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.color.ColorSpace;
 import java.util.List;
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.awt.Point;
 
 public class Display extends Frame implements WindowListener,ActionListener {
@@ -33,19 +33,19 @@ public class Display extends Frame implements WindowListener,ActionListener {
     Button b, c;
 
     final int GX[][] = {{-1,0,1},
-                          {-2,0,2},
-                          {-1,0,1}};
+                        {-2,0,2},
+                        {-1,0,1}};
     final int GY[][] = {{-1,-2,-1},
-                          {0,0,0},
-                          {1,2,1}};
+                        {0,0,0},
+                        {1,2,1}};
     private static final float[] sobel1 = { 1.0f, 0.0f, -1.0f};
     private static final float[] sobel2 = { 1.0f, 2.0f,  1.0f};
     final float gaus[] =  {
-            0.01936442791517524f, 0.05653536331573492f, 0.08080260449814265f, 0.05653536331573492f, 0.01936442791517524f,
-            0.05653536331573492f, 0.16505766755636275f, 0.23590702612909029f, 0.16505766755636275f, 0.05653536331573492f,
-            0.08080260449814265f, 0.23590702612909029f, 0.3371677656723677f, 0.23590702612909029f, 0.08080260449814265f,
-            0.05653536331573492f, 0.16505766755636275f, 0.23590702612909029f, 0.16505766755636275f, 0.05653536331573492f,
-            0.01936442791517524f, 0.05653536331573492f, 0.08080260449814265f, 0.05653536331573492f, 0.01936442791517524f
+            2/155f,4/155f,5/155f,4/155f,2/155f,
+            4/155f, 9/155f, 12/155f, 9/155f, 4/155f,
+            5/155f,12/155f,15/155f,12/155f,5/155f,
+            4/155f,9/155f,12/155f,9/155f,4/155f,
+            2/155f,4/155f,5/155f,4/155f,2/155f
     };
 
 
@@ -59,6 +59,7 @@ public class Display extends Frame implements WindowListener,ActionListener {
     int[][] acc;
     int accSize=20;
     int[] results;
+    int[][] binary;
 
     //int r = 14;
     int rmax;
@@ -210,7 +211,8 @@ public class Display extends Frame implements WindowListener,ActionListener {
     public void gaussianBlur()
     {
         filtered = null;
-        Kernel kernel = new Kernel(5, 5, makeGaussianKernel(5, 1.4f));
+        //Kernel kernel = new Kernel(5, 5, makeGaussianKernel(5, 1.4f));
+        Kernel kernel = new Kernel(5, 5, gaus);
         ConvolveOp op = new ConvolveOp(kernel, ConvolveOp.EDGE_NO_OP, null);
         filtered = op.filter(img, null);
 //        int[] value = new int[1];
@@ -241,7 +243,7 @@ public class Display extends Frame implements WindowListener,ActionListener {
 
     public void sobel()
     {
-
+        binary = new int[height][width];
         sobel = new BufferedImage ( width, height, filtered.getType() );
         Graphics2D g = nonMax.createGraphics();
         g.setColor( new Color ( 0, 0, 0, 0 ));
@@ -255,8 +257,8 @@ public class Display extends Frame implements WindowListener,ActionListener {
         for (int y = 1;y < height-1;++y)
             for (int x = 1; x < width-1;++x)
             {
-                float Xvalue = 0;
-                float Yvalue = 0;
+                double Xvalue = 0;
+                double Yvalue = 0;
                 for (int j = -1;j <=1;++j)
                     for (int i = -1;i <=1;++i)
                     {
@@ -268,10 +270,8 @@ public class Display extends Frame implements WindowListener,ActionListener {
                 sY[y][x] = Yvalue;
                 double[] a = {(Math.abs(sX[y][x]) + Math.abs(sY[y][x]))};
                 //if (a[0] > max) max = a[0];
-                //if (a[0] > 255)
-                //    a[0] = 255;
-                //if (a[0] < 0)
-                //    a[0] = 0;
+                if (a[0] > 0) binary[y][x] = 1;
+                if (a[0] <= 0) binary[y][x] = 0;
 
                 sobel.getRaster().setPixel(x, y, a);
             }
@@ -293,15 +293,26 @@ public class Display extends Frame implements WindowListener,ActionListener {
         double[][] gm = new double[height][width];
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                //System.out.println(x + ", " + y + " | " + width +", " + height);
+
                 // setting gradient magnitude and gradient direction
                 if (sX[y][x] != 0) {
+                    if (sY[y][x] == 0)
+                        if (sX[y][x] > 0)
+                            gd[y][x]= 0;
+                        else
+                            gd[y][x] = Math.PI;
                     gd[y][x] = Math.atan(sY[y][x] / sX[y][x]);
                 } else {
-                    gd[y][x] = Math.PI / 2d;
+                    System.out.println(sX[y][x] + ", " + sY[y][x] + " | " + width +", " + height);
+                    if (sY[y][x] > 0)
+                        gd[y][x] = Math.PI / 2d;
+                    else
+                        gd[y][x] = 3d*Math.PI / 2d;
                 }
                 gm[y][x] = Math.sqrt(sY[y][x] * sY[y][x] + sX[y][x] * sX[y][x]);
-//                gm[y][x] = Math.hypot(sY[y][x], sX[y][x]);
+                if (gm[y][x] > 255)  gm[y][x] = 255;
+          //      if (gm[y][x] < 0)  gm[y][x] = 0;
+                gm[y][x] = Math.hypot(sY[y][x], sX[y][x]);
             }
         }
         for (int x = 0; x < width; x++) {
@@ -314,25 +325,27 @@ public class Display extends Frame implements WindowListener,ActionListener {
         }
         for (int y = 1; y < height - 1; y++) {
             for (int x = 1; x < width - 1; x++) {
+
                // System.out.println(x + ", " + y + " | " + width +", " + height);
+                //if (gd[y][x] < (Math.PI / 8d) && gd[y][x] >= (-Math.PI / 8d)) {//22.5 |  -22.5
                 if (gd[y][x] < (Math.PI / 8d) && gd[y][x] >= (-Math.PI / 8d)) {
                     // check if pixel is a local maximum ...
                     if (gm[y][x] > gm[y + 1][x] && gm[y][x] > gm[y - 1][x])
                         setPixel(x, y, nonMax, gm[y][x]);
                     else
                         nonMax.getRaster().setPixel(x, y, tmp255);
-                } else if (gd[y][x] < (3d * Math.PI / 8d) && gd[y][x] >= (Math.PI / 8d)) {
+                } else if (gd[y][x] < (3d * Math.PI / 8d) && gd[y][x] >= (Math.PI / 8d)) { //22.5 | 67.5
                     // check if pixel is a local maximum ...
                     if (gm[y][x] > gm[y - 1][x - 1] && gm[y][x] > gm[y + 1][x + 1])
                         setPixel(x, y, nonMax, gm[y][x]);
                     else
                         nonMax.getRaster().setPixel(x, y, tmp255);
-                } else if (gd[y][x] < (-3d * Math.PI / 8d) || gd[y][x] >= (3d * Math.PI / 8d)) {
+                } else if (gd[y][x] < (-3d * Math.PI / 8d) || gd[y][x] >= (3d * Math.PI / 8d)) {//-67.5 | 67.5
                     if (gm[y][x] > gm[y][x + 1] && gm[y][x] > gm[y][x - 1])
                         setPixel(x, y, nonMax, gm[y][x]);
                     else
                         nonMax.getRaster().setPixel(x, y, tmp255);
-                } else if (gd[y][x] < (-Math.PI / 8d) && gd[y][x] >= (-3d * Math.PI / 8d)) {
+                } else if (gd[y][x] < (-Math.PI / 8d) && gd[y][x] >= (-3d * Math.PI / 8d)) {//-22.5 | 67.5
                     if (gm[y][x] > gm[y + 1][x - 1] && gm[y][x] > gm[y - 1][x + 1])
                         setPixel(x, y, nonMax, gm[y][x]);
                     else
