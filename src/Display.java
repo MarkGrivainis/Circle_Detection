@@ -6,14 +6,10 @@ import java.io.IOException;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.event.*;
-import java.awt.color.ColorSpace;
 import java.util.Arrays;
 
 public class Display extends Frame implements WindowListener,ActionListener, ChangeListener {
 
-    static ColorConvertOp grayscale = new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null);
-
-    private final static float GAUSSIAN_CUT_OFF = 0.005f;
     private final static float MAGNITUDE_SCALE = 100F;
     private final static float MAGNITUDE_LIMIT = 1000F;
     private final static int MAGNITUDE_MAX = (int) (MAGNITUDE_SCALE * MAGNITUDE_LIMIT);
@@ -31,10 +27,9 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
 
     int width = 0;
     int height = 0;
-    BufferedImage img, greyScale, filtered, sobel, nonMax, accImage, res;
+    BufferedImage img, greyScale = null, filtered = null, sobel = null, nonMax = null, accImage = null, res = null;
     double[][] sX, sY;
 
-    double thresholdLow = 60, thresholdHigh = 100;
 
     Button b, c;
 
@@ -53,18 +48,11 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
             2/159f,4/159f,5/159f,4/159f,2/159f
     };
 
-
-    int[] tmp255 = {255};
-    int[] tmp128 = {128};
-    int[] tmp000 = {0};
-    int[] tmpPixel = {0};
-
-    String path = "pic_2.gif";
+    String path = "pic_1.gif";
 
     int[][] acc;
     int accSize=12;
     int[] results;
-    int[][] binary;
 
     int[] data;
     int[] magnitude;
@@ -78,7 +66,7 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
 
 
     public static void main(String[] args) throws IOException {
-        Display myWindow = new Display("My first window");
+        Display myWindow = new Display("Hough Circle");
         myWindow.setSize(800, 600);
         myWindow.setVisible(true);
     }
@@ -108,7 +96,7 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
         whichRadius = new JSlider(JSlider.HORIZONTAL, rmin, 125, 14);
 
 
-        whichRadius.setMajorTickSpacing(30);
+        whichRadius.setMajorTickSpacing(10);
         whichRadius.setMinorTickSpacing(1);
         whichRadius.setPaintTicks(true);
         whichRadius.setPaintLabels(true);
@@ -150,7 +138,7 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
     public void actionPerformed(ActionEvent e){
         if(e.getSource() == b) {
             JFrame frame2 = new JFrame();
-            JFileChooser chooser = new JFileChooser();
+            JFileChooser chooser = new JFileChooser(".");
             int option = chooser.showOpenDialog(frame2); // parentComponent must a component like JFrame, JDialog...
             if (option == JFileChooser.APPROVE_OPTION) {
                 File selectedFile = chooser.getSelectedFile();
@@ -163,7 +151,7 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
             }
         } else if (e.getSource() == c) {
 
-            greyScale = copyImage(img);
+
             gaussianBlur();
             //filtered = grayscale.filter(filtered, null);
             sobel();
@@ -214,17 +202,20 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
     }
 
     public void stateChanged(ChangeEvent e) {
-        JSlider source = (JSlider)e.getSource();
-        if (!source.getValueIsAdjusting()) {
-            System.out.println("adjusting");
-            buildAccumulator(source.getValue());
-            accumulator.setSelected(true);
+        if (e.getSource() == whichRadius)
+        {
+            if (!whichRadius.getValueIsAdjusting()) {
+                //System.out.println(acc.length);
+                if (acc != null)
+                    buildAccumulator(whichRadius.getValue());
+                accumulator.setSelected(true);
+            }
         }
     }
 
     private  void buildAccumulator(int r)
     {
-        accImage = new BufferedImage ( width, height, filtered.getType() );
+        accImage = new BufferedImage ( width, height, greyScale.getType() );
         Graphics2D g = accImage.createGraphics();
         g.setColor(new Color(0, 0, 0, 0));
         g.fillRect(0, 0, width, height);
@@ -290,9 +281,7 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
         //NOTE: There is currently no mechanism for obtaining the edge data
         //in any other format other than an INT_ARGB type BufferedImage.
         //This may be easily remedied by providing alternative accessors.
-        //if (nonMax == null) {
-            nonMax = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        //}
+        nonMax = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         nonMax.getWritableTile(0, 0).setDataElements(0, 0, width, height, pixels);
     }
 
@@ -346,53 +335,13 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
         lbl2.setIcon(icon2);
     }
 
-    public static float[] makeGaussianKernel(int radius, float sigma) {
-        float[] kernel = new float[radius * radius];
-        float sum = 0;
-        for (int y = 0; y < radius; y++) {
-            for (int x = 0; x < radius; x++) {
-                int goffset = y * radius + x;
-                int i = x - radius / 2;
-                int j = y - radius / 2;
-                kernel[goffset] = (float) Math.pow(Math.E, -(i * i + j * j)
-                        / (2 * (sigma * sigma)));
-                sum += kernel[goffset];
-            }
-        }
-        for (int i = 0; i < kernel.length; i++)
-            kernel[i] /= sum;
-        return kernel;
-    }
-
     public void gaussianBlur()
     {
         filtered = null;
-        Kernel kernel = new Kernel(5, 5, makeGaussianKernel(5, 1.4f));
-        //Kernel kernel = new Kernel(5, 5, gaus);
+        //Kernel kernel = new Kernel(5, 5, makeGaussianKernel(5, 1.4f));
+        Kernel kernel = new Kernel(5, 5, gaus);
         ConvolveOp op = new ConvolveOp(kernel);
         filtered = op.filter(greyScale, null);
-//        int[] value = new int[1];
-//        double r = 1.4;
-//        int rs = 2;     // significant radius
-//            for(int i=0; i<height; i++)
-//                for(int j=0; j<width; j++)
-//                {
-//                    float val = 0, wsum = 0;
-//                    for(int iy = i-rs; iy<i+rs+1; iy++)
-//                        for(int ix = j-rs; ix<j+rs+1; ix++)
-//                        {
-//                            int x = Math.min(width-1, Math.max(0, ix));
-//                            int y = Math.min(height-1, Math.max(0, iy));
-//                            float dsq = (ix-j)*(ix-j)+(iy-i)*(iy-i);
-//                            //double wght = Math.exp( -dsq / (2*r*r) ) / (Math.PI*2*r*r);
-//                            double wght = Math.pow(Math.E, (-dsq))/(2 * (r * r));
-//                            int gray= img.getRGB(x, y)& 0xFF;
-//                            val += gray * wght;
-//                            wsum += wght;
-//                        }
-//                    value[0] = Math.round(val/wsum);
-//                    filtered.getRaster().setPixel(j, i, value);
-//                }
         ImageIcon icon2=new ImageIcon(filtered);
         lbl2.setIcon(icon2);
     }
@@ -524,111 +473,9 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
                 }
             }
         }
-//        double[][] gd = new double[height][width];
-//        double[][] gm = new double[height][width];
-//        for (int y = 0; y < height; y++) {
-//            for (int x = 0; x < width; x++) {
-//
-//                // setting gradient magnitude and gradient direction
-//                if (sX[y][x] != 0) {
-//                    if (sY[y][x] == 0)
-//                        if (sX[y][x] > 0)
-//                            gd[y][x]= 0;
-//                        else
-//                            gd[y][x] = Math.PI;
-//                    gd[y][x] = Math.atan(sY[y][x] / sX[y][x]);
-//                } else {
-//                    System.out.println(sX[y][x] + ", " + sY[y][x] + " | " + width +", " + height);
-//                    if (sY[y][x] > 0)
-//                        gd[y][x] = Math.PI / 2d;
-//                    else
-//                        gd[y][x] = 3d*Math.PI / 2d;
-//                }
-//                gm[y][x] = Math.sqrt(sY[y][x] * sY[y][x] + sX[y][x] * sX[y][x]);
-//                if (gm[y][x] > 255)  gm[y][x] = 255;
-//          //      if (gm[y][x] < 0)  gm[y][x] = 0;
-//                gm[y][x] = Math.hypot(sY[y][x], sX[y][x]);
-//            }
-//        }
-//        for (int x = 0; x < width; x++) {
-//            nonMax.getRaster().setPixel(x, 0, new int[]{255});
-//            nonMax.getRaster().setPixel(x, height - 1, new int[]{255});
-//        }
-//        for (int y = 0; y < height; y++) {
-//            nonMax.getRaster().setPixel(0, y, new int[]{255});
-//            nonMax.getRaster().setPixel(width - 1, y, new int[]{255});
-//        }
-//        for (int y = 1; y < height - 1; y++) {
-//            for (int x = 1; x < width - 1; x++) {
-//
-//               // System.out.println(x + ", " + y + " | " + width +", " + height);
-//                //if (gd[y][x] < (Math.PI / 8d) && gd[y][x] >= (-Math.PI / 8d)) {//22.5 |  -22.5
-//                if (gd[y][x] < (Math.PI / 8d) && gd[y][x] >= (-Math.PI / 8d)) {
-//                    // check if pixel is a local maximum ...
-//                    if (gm[y][x] > gm[y + 1][x] && gm[y][x] > gm[y - 1][x])
-//                        setPixel(x, y, nonMax, gm[y][x]);
-//                    else
-//                        nonMax.getRaster().setPixel(x, y, tmp255);
-//                } else if (gd[y][x] < (3d * Math.PI / 8d) && gd[y][x] >= (Math.PI / 8d)) { //22.5 | 67.5
-//                    // check if pixel is a local maximum ...
-//                    if (gm[y][x] > gm[y - 1][x - 1] && gm[y][x] > gm[y + 1][x + 1])
-//                        setPixel(x, y, nonMax, gm[y][x]);
-//                    else
-//                        nonMax.getRaster().setPixel(x, y, tmp255);
-//                } else if (gd[y][x] < (-3d * Math.PI / 8d) || gd[y][x] >= (3d * Math.PI / 8d)) {//-67.5 | 67.5
-//                    if (gm[y][x] > gm[y][x + 1] && gm[y][x] > gm[y][x - 1])
-//                        setPixel(x, y, nonMax, gm[y][x]);
-//                    else
-//                        nonMax.getRaster().setPixel(x, y, tmp255);
-//                } else if (gd[y][x] < (-Math.PI / 8d) && gd[y][x] >= (-3d * Math.PI / 8d)) {//-22.5 | 67.5
-//                    if (gm[y][x] > gm[y + 1][x - 1] && gm[y][x] > gm[y - 1][x + 1])
-//                        setPixel(x, y, nonMax, gm[y][x]);
-//                    else
-//                        nonMax.getRaster().setPixel(x, y, tmp255);
-//                } else {
-//                    nonMax.getRaster().setPixel(x, y, tmp255);
-//                }
-//            }
-//        }
-//        int[] tmp = {0};
-//        for (int x = 1; x < width - 1; x++) {
-//            for (int y = 1; y < height - 1; y++) {
-//                if (nonMax.getRaster().getPixel(x, y, tmp)[0] < 50) {
-//                    // It's a strong pixel, lets find the neighbouring weak ones.
-//                    trackWeakOnes(x, y, nonMax);
-//                }
-//            }
-//        }
-//        // removing the single weak pixels.
-//        for (int x = 2; x < width - 2; x++) {
-//            for (int y = 2; y < height - 2; y++) {
-//                if (nonMax.getRaster().getPixel(x, y, tmp)[0] > 50) {
-//                    nonMax.getRaster().setPixel(x, y, tmp255);
-//                }
-//            }
-//        }
+
         ImageIcon icon2=new ImageIcon(nonMax);
         lbl2.setIcon(icon2);
-    }
-
-    private void trackWeakOnes(int x, int y, BufferedImage gray) {
-        for (int xx = x - 1; xx <= x + 1; xx++)
-            for (int yy = y - 1; yy <= y + 1; yy++) {
-                if (isWeak(xx, yy, gray)) {
-                    gray.getRaster().setPixel(xx, yy, tmp000);
-                    trackWeakOnes(xx, yy, gray);
-                }
-            }
-    }
-
-    private boolean isWeak(int x, int y, BufferedImage gray) {
-        return (gray.getRaster().getPixel(x, y, tmpPixel)[0] > 0 && gray.getRaster().getPixel(x, y, tmpPixel)[0] < 255);
-    }
-
-    private void setPixel(int x, int y, BufferedImage gray, double v) {
-        if (v > thresholdLow) gray.getRaster().setPixel(x, y, tmp000);
-        else if (v > thresholdHigh) gray.getRaster().setPixel(x, y, tmp128);
-        else gray.getRaster().setPixel(x, y, tmp255);
     }
 
     public static BufferedImage copyImage(BufferedImage source){
@@ -696,7 +543,6 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
             }
         }
 
-        //System.out.println("Max :" + max);
 
         // Normalise all the values
         int value;
@@ -711,12 +557,6 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
                 }
             }
         }
-
-        //sobel = new BufferedImage ( width, height, BufferedImage.TYPE_BYTE_GRAY );
-        //Graphics2D g = sobel.createGraphics();
-        //g.setColor( new Color ( 0, 0, 0, 0 ));
-        //g.fillRect(0, 0, width, height);
-        //g.dispose();
 
         findMaxima();
 
@@ -784,49 +624,12 @@ public class Display extends Frame implements WindowListener,ActionListener, Cha
         lbl1.setIcon(icon1);
     }
 
-    private void setPixel2(int value, int xPos, int yPos) {
-        int rgb = img.getRGB(xPos,yPos);
-        Color color = new Color(rgb);
-        Color res = new Color(value, color.getGreen(), color.getBlue());
-        img.setRGB(xPos, yPos, res.getRGB());
-    }
-
     private void drawCircle(int pix, int xCenter, int yCenter, int r) {
         Graphics2D g = res.createGraphics();
         g.setColor(Color.RED);
         g.drawOval(xCenter - r, yCenter-r, r*2, r*2);
         g.dispose();
-//        pix = 250;
-//
-//        int x, y, r2;
-//        int radius = r;
-//        r2 = r * r;
-//        setPixel(pix, xCenter, yCenter + radius);
-//        setPixel(pix, xCenter, yCenter - radius);
-//        setPixel(pix, xCenter + radius, yCenter);
-//        setPixel(pix, xCenter - radius, yCenter);
-//
-//        y = radius;
-//        x = 1;
-//        y = (int) (Math.sqrt(r2 - 1) + 0.5);
-//        while (x < y) {
-//            setPixel(pix, xCenter + x, yCenter + y);
-//            setPixel(pix, xCenter + x, yCenter - y);
-//            setPixel(pix, xCenter - x, yCenter + y);
-//            setPixel(pix, xCenter - x, yCenter - y);
-//            setPixel(pix, xCenter + y, yCenter + x);
-//            setPixel(pix, xCenter + y, yCenter - x);
-//            setPixel(pix, xCenter - y, yCenter + x);
-//            setPixel(pix, xCenter - y, yCenter - x);
-//            x += 1;
-//            y = (int) (Math.sqrt(r2 - x*x) + 0.5);
-//        }
-//        if (x == y) {
-//            setPixel(pix, xCenter + x, yCenter + y);
-//            setPixel(pix, xCenter + x, yCenter - y);
-//            setPixel(pix, xCenter - x, yCenter + y);
-//            setPixel(pix, xCenter - x, yCenter - y);
-//        }
+
     }
 
     public void windowOpened(WindowEvent e) {}
